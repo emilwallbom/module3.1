@@ -1,0 +1,30 @@
+{
+  "unity_version": "6000.3.29f1",
+  "unity_revision": "96d2fe17529c",
+  "editor": {
+    "url": "https://download.unity3d.com/download_unity/96d2fe17529c/Windows64EditorInstaller/UnitySetup64-6000.3.29f1.exe",
+    "integrity": "md5-OWikgHE7ErwATxu2mF+q/g==",
+    "downloadSize": {
+      "value": 4205154408,
+      "unit": "BYTE"
+    },
+    "installedSize": {
+      "value": 8401586572,
+      "unit": "BYTE"
+    }
+  },
+  "cli_version": "1.0.1",
+  "cli": {
+    "filename": "unity-windows-x64.exe",
+    "sha256": "c06c2e86941162e8d46957d39a6089162ad52a00023433881b5e9a18ea220d17",
+    "size": 45356456,
+    "brotli": {
+      "filename": "unity-windows-x64.exe.br",
+      "sha256": "bda6ad9215cd1d91828c176c3b3473d259a72c43194e57af93b46876d8cd2936",
+      "size": 13196539
+    }
+  },
+  "reference_commit": "b49c95e7795ef6f343efacedb6b90a69c7855b32",
+  "uv_version": "0.13.5",
+  "python_version": "3.12.15"
+}

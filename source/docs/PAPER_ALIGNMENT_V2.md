@@ -1,0 +1,45 @@
+> HISTORICAL v2: before the half-car track allowance and robust terminal/junction fixes. See PAPER_ALIGNMENT.md and VALIDATION.md for the current version.
+
+# Paper alignment and explicit differences
+
+The primary specification is **Rosolia and Borrelli, Learning How to Autonomously Race a Car: A Predictive Control Approach**, IEEE TCST 28(6), 2020, DOI [10.1109/TCST.2019.2948135](https://doi.org/10.1109/TCST.2019.2948135). The [author preprint](https://arxiv.org/pdf/1901.08184) contains the equations discussed below. The user's supplied published PDF was checked directly.
+
+**Current default: `paper-hard`, algorithm revision `paper-aligned-fullsize-v2`. This aligns the controller with the paper's equations and parameters; it is not a reproduction of the physical BARC experiment. The full-size learning benchmark currently fails.** See [VALIDATION.md](VALIDATION.md). Previous successful 40-lap results belong to the old, more heavily adapted controller and must not be used as evidence for this revision.
+
+## Controller correspondence
+
+| Component | Paper | Current implementation |
+| --- | --- | --- |
+| Objective | Minimum time; one stage-cost unit per step before finishing; learned remaining time | Learned remaining **control steps**, plus the small input-rate cost. The constant running cost is omitted from the QP. Continuous finish-line extension is described below. No lateral tracking or prescribed-line cost. |
+| State / input | `[vx, vy, yaw_rate, heading_error, s, ey]` / `[steering, acceleration]` | Same, SI units |
+| Prediction | Table I: N=12; Section V: 10 Hz | **12 steps × 0.1 s = 1.2 s**, including on the full-size adaptation |
+| Terminal history | Last two successful laps | Same; failed and manual laps excluded |
+| Terminal samples | K=20 per lap, selected by progress distance | Same: 40 samples, with the matching successors |
+| Terminal set | Eq. (6): convex hull in the six-dimensional state | Nonnegative barycentric weights summing to one; **hard terminal equality** in default mode, within solver tolerance |
+| Learned terminal cost | Eqs. (7)–(8): barycentric interpolation of recorded time-to-finish | Same remaining-step values and weights |
+| Candidate update | Eq. (10), Section IV-C: shift prediction and append the barycentric successor | Same; successor inputs complete the shifted control candidate. Previously the last predicted state was repeated; that has been corrected. |
+| Identification neighborhood | Eq. (13), Table I: P=80; state metric Q=diag(0.1,1,1,0,0,0); h=10 | Same. Inputs are regressors, **not neighbor-selection coordinates**. Uses the latest two successful laps. |
+| Regression weights | Epanechnikov K(u)=3/4(1-u²) inside support; Eq. (13) uses u=norm_Q(dx)²/h | Same squared-distance argument, bandwidth and kernel |
+| Velocity regression | Unregularized local weighted least squares; five coefficients per velocity channel | Same features: `[vx,vy,r,a,1]` for vx and `[vx,vy,r,delta,1]` for vy/r. Centering/scaling and SVD improve numerical conditioning without a model prior or ridge penalty. Missing support or rank deficiency pauses the attempt. |
+| Kinematics | Eq. (12) Euler discretization and Jacobian | Same Frenet kinematics, dt=0.1; analytic Jacobians verified against finite differences. Piecewise-constant track curvature is frozen within each linearization. |
+
+Paper settings are centralized in [spec.py](../backend/racing/spec.py). Geometry comes from one definition shared with Unity.
+
+## Differences that remain
+
+1. **Physical system and geometry.** The paper experiments use the 1/10-scale BARC vehicle. This simulator retains the requested approximate 1500 kg C4-sized nonlinear bicycle, 2.44 m wheelbase, saturated tanh tire forces, low-speed stabilization, and RK4 integration at 200 Hz. It is neither calibrated BARC hardware nor a measured Corvette. The reference L-track centerline is enlarged 20× to 384.5916 m, with an 8 m road width. Vehicle dimensions and time have not been scaled by a dynamic-similarity transformation. Copying N=12 therefore does not preserve the paper's ratio of lookahead distance to vehicle/track dimensions.
+2. **Initialization.** Both warm-up laps track a constant **8 m/s setpoint**, rather than the paper's approximately 1.2 m/s BARC initialization. Small seeded input excitation remains: steering standard deviation 0.0003 rad and acceleration 0.025 m/s². This synthetic excitation is a simulator choice, not a paper claim. The resulting two laps are not sufficient to establish reliable full-size identification. Larger-excitation and varying-speed pilots are stored under `artifacts`; none is silently selected as the default.
+3. **Road and operating constraints.** The paper writes generic convex state/input constraints. This implementation chooses the conservative full-vehicle envelope `abs(ey) + length/2*abs(epsi) <= road_width/2 - vehicle_width/2`, and separately checks the nonlinear plant's footprint. This differs from constraining a vehicle point by track width. Fixed full-size limits are vx in [0.5,36] m/s, heading error in [-pi/2,pi/2], steering ±0.5 rad, acceleration [-7,3] m/s². There are no curvature-based speed caps, observed-data speed caps, extra lateral-velocity/yaw-rate bounds, tire-slip limits, hard input-rate limits, or penalized interior road reserves.
+4. **Small input-rate penalty.** Section V mentions this but does not publish its coefficients. Our squared input-increment weights are `[1,0.01]` in control-step units. These are explicit tuning choices, not recovered paper values. State tracking, direct input magnitude, lambda regularization, and curb-distance costs are zero.
+5. **Continuous laps and objective at the finish.** Stored successor data extend across the finish line. The implementation follows the authors' public code's periodic extension, allowing continuation cost-to-go to decrease below zero past that lap's finish. The QP treats the horizon running cost as constant and optimizes the continued terminal cost. This is a continuous-racing implementation detail, not an exact mixed-integer implementation of the discontinuous finish-indicator stage cost in Eq. (8a). It does not plan a terminal stop. Provisional continuation from a failed attempt is rolled back.
+6. **Numerical handling.** OSQP is the primary QP solver. Clarabel can solve the identical QP after a numerical failure, followed by explicit residual checks. One retry may relinearize around a prior successful measured trajectory. Feasible OSQP iteration-limit results require recorded primal/dual checks; failure pauses and rejects the attempt. These handling choices and finite tolerances are not theoretical feasibility guarantees. No alternate tracking command is substituted during learning.
+7. **Optional terminal relaxation.** `--terminal-mode author-soft` adds `500*||sigma||²` and permits terminal equality slack, following the **terminal-relaxation component** of the pinned authors' public simulation code. This differs from the paper's hard Eq. (8c), is not automatically enabled on failure, and is displayed as `AUTHOR-SOFT`. It does not mean the entire author simulation configuration is used. Its full-size benchmark also currently fails.
+8. **Rendering, recordings and manual mode.** Unity, the C4 body, ghosts, replay, and keyboard driving are simulator features. Manual data are separate. Historical v1 demonstrations can be replayed read-only with a visible legacy label; they cannot initialize or modify this learner. Checkpoint hashes include algorithm revision, horizon, terminal mode, identification settings and initialization excitation.
+
+## Paper versus the public author implementation
+
+The [pinned public implementation](https://github.com/urosolia/RacingLMPC/tree/b49c95e7795ef6f343efacedb6b90a69c7855b32) is useful reference material, but its defaults differ from the published experiment. For example, its main program uses N=14; it selects four fastest histories, uses terminal slack, and its regression code uses an input-inclusive L1 neighborhood with h=5 and a small per-trajectory sample count. The paper's Table I uses N=12, the latest two histories, K=20, and the Eq. (13) state-distance construction. **The paper takes precedence here.** Relevant pinned source files are retained under `references/RacingLMPC` with attribution.
+
+Changes from v1 deliberately remove the nominal-model prior, expanding speed support, centerline curvature speed envelope, front-slip bound, hard actuator-rate constraints, and artificial road reserve. Old results and editable-source snapshots remain available for comparison. They are labeled historical, not paper reproductions.
+
+The paper's physical experiments and theoretical assumptions do not establish that this different full-size plant will reproduce their lap times, trajectories, or guarantees. Current failures are reported rather than hidden behind a different controller. A successful full-size adaptation still needs identification/model-validation work; another speed cap should not be presented as a faithful fix.

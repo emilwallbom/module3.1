@@ -1,0 +1,15 @@
+.tools/
+.cache/
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+UnityProject/Library/
+UnityProject/Temp/
+UnityProject/Logs/
+UnityProject/obj/
+UnityProject/UserSettings/
+builds/
+recordings/
+artifacts/
+
